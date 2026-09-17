@@ -1,6 +1,6 @@
 FROM nginx:1.25.3-bookworm AS build
 
-# These are normally syminks to /dev/stdout and /dev/stderr, which don't
+# These are normally symlinks to /dev/stdout and /dev/stderr, which don't
 # (currently) work with Unikraft. We remove them, such that Nginx will create
 # them by hand.
 RUN rm /var/log/nginx/error.log
@@ -30,6 +30,7 @@ COPY --from=build /etc/ld.so.cache /etc/ld.so.cache
 
 # Custom configuration files
 COPY ./nginx/conf/nginx.conf /etc/nginx/nginx.conf
+COPY ./nginx/conf/mime.types /etc/nginx/mime.types
 
 # Web root
 COPY ./nginx/html /wwwroot

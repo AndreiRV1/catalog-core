@@ -1,7 +1,7 @@
 {
   "boot-source": {
-    "kernel_image_path": "workdir/build/elfloader_fc-x86_64",
-    "boot_args": "elfloader_fc-x86_64 netdev.ip=172.44.0.2/24:172.44.0.1::: vfs.fstab=[ \"initrd0:/:extract::ramfs=1:\" ] -- ./usr/bin/nginx",
+    "kernel_image_path": "workdir/build/elfloader_qemu-x86_64",
+    "boot_args": "elfloader_qemu-x86_64 netdev.ip=172.44.0.2/24:172.44.0.1::: vfs.fstab=[ \"initrd0:/:extract::ramfs=1:\" ] -- /usr/bin/nginx",
     "initrd_path": "initrd.cpio"
   },
   "drives": [],

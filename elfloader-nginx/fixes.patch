@@ -1,0 +1,158 @@
+diff --git a/elfloader-nginx/.scripts/build.sh b/elfloader-nginx/.scripts/build.sh
+new file mode 100755
+index 0000000..470b0b6
+--- /dev/null
++++ b/elfloader-nginx/.scripts/build.sh
+@@ -0,0 +1,4 @@
++#!/bin/bash
++DOCKER_BUILDKIT=1 docker build -o rootfs .
++./workdir/unikraft/support/scripts/mkcpio initrd.cpio ./rootfs/
++make -j $(nproc)
+diff --git a/elfloader-nginx/.scripts/run.sh b/elfloader-nginx/.scripts/run.sh
+new file mode 100755
+index 0000000..0d2c0f4
+--- /dev/null
++++ b/elfloader-nginx/.scripts/run.sh
+@@ -0,0 +1,9 @@
++#!/bin/bash
++sudo qemu-system-x86_64 \
++    -nographic \
++    -m 128 \
++    -cpu max \
++    -netdev bridge,id=en0,br=virbr0 -device virtio-net-pci,netdev=en0 \
++    -append "elfloader_qemu-x86_64 netdev.ip=172.44.0.2/24:172.44.0.1::: vfs.fstab=[ \"initrd0:/:extract::ramfs=1:\" ] -- /usr/bin/nginx" \
++    -kernel workdir/build/elfloader_qemu-x86_64 \
++    -initrd ./initrd.cpio
+diff --git a/elfloader-nginx/Config.uk b/elfloader-nginx/Config.uk
+index 01c3740..647a3a8 100644
+--- a/elfloader-nginx/Config.uk
++++ b/elfloader-nginx/Config.uk
+@@ -9,17 +9,24 @@ config APPELFLOADERNETNGINX
+ 
+ 	# Configurations options for app-elfloader
+ 	# (they can't be part of the template atm)
+-	select APPELFLOADER_ARCH_PRCTL
+-	select APPELFLOADER_BRK
++	select LIBPOSIX_PROCESS_ARCH_PRCTL
+ 	select APPELFLOADER_CUSTOMAPPNAME
+-	select APPELFLOADER_STACK_NBPAGES
+ 	select APPELFLOADER_VFSEXEC_EXECBIT
+ 	select APPELFLOADER_VFSEXEC
+-	select APPELFLOADER_HFS
+-	select APPELFLOADER_HFS_ETCRESOLVCONF
+-	select APPELFLOADER_HFS_ETCHOSTS
+-	select APPELFLOADER_HFS_ETCHOSTNAME
+-	select APPELFLOADER_HFS_REPLACEEXIST
++	select APPELFLOADER_AUTOGEN
++	select APPELFLOADER_AUTOGEN_ETCRESOLVCONF
++	select APPELFLOADER_AUTOGEN_ETCHOSTS
++	select APPELFLOADER_AUTOGEN_ETCHOSTNAME
++
++	select LIBUKBOOT_MAINTHREAD
++	select LIBPOSIX_PROCESS_MULTITHREADING
++
++	# Nginx needs
++	select LIBPOSIX_FUTEX
++	select LIBPOSIX_PROCESS_SIGNAL
++	select LIBUKRANDOM_GETRANDOM
++	select LIBPOSIX_EVENTFD
++	select LIBPOSIX_UNIXSOCKET
+ 
+ 	# Select filesystem implementation: cpio, ramfs, devfs.
+ 	select LIBVFSCORE
+@@ -36,3 +43,7 @@ config APPELFLOADERNETNGINX
+ 	# This component parses the configuration string in the command line:
+ 	#    netdev.ip=172.44.0.2/24:172.44.0.1:::
+ 	select LIBUKNETDEV_EINFO_LIBPARAM
++
++config APPELFLOADER_STACK_NBPAGES
++	int
++	default 128 if APPELFLOADERNETNGINX
+diff --git a/elfloader-nginx/Dockerfile b/elfloader-nginx/Dockerfile
+index 4616c68..8a129c4 100644
+--- a/elfloader-nginx/Dockerfile
++++ b/elfloader-nginx/Dockerfile
+@@ -1,6 +1,6 @@
+ FROM nginx:1.25.3-bookworm AS build
+ 
+-# These are normally syminks to /dev/stdout and /dev/stderr, which don't
++# These are normally symlinks to /dev/stdout and /dev/stderr, which don't
+ # (currently) work with Unikraft. We remove them, such that Nginx will create
+ # them by hand.
+ RUN rm /var/log/nginx/error.log
+@@ -30,6 +30,7 @@ COPY --from=build /etc/ld.so.cache /etc/ld.so.cache
+ 
+ # Custom configuration files
+ COPY ./nginx/conf/nginx.conf /etc/nginx/nginx.conf
++COPY ./nginx/conf/mime.types /etc/nginx/mime.types
+ 
+ # Web root
+ COPY ./nginx/html /wwwroot
+diff --git a/elfloader-nginx/Makefile b/elfloader-nginx/Makefile
+index d3e6c1b..7e73dd2 100644
+--- a/elfloader-nginx/Makefile
++++ b/elfloader-nginx/Makefile
+@@ -1,8 +1,8 @@
+ UK_ROOT ?= $(PWD)/workdir/unikraft
+ UK_BUILD ?= $(PWD)/workdir/build
+-UK_APP ?= $(PWD)/workdir/apps/elfloader
++UK_APP ?= $(PWD)
+ LIBS_BASE = $(PWD)/workdir/libs
+-UK_LIBS ?= $(LIBS_BASE)/libelf:$(LIBS_BASE)/lwip
++UK_LIBS ?= $(PWD):$(LIBS_BASE)/libelf:$(LIBS_BASE)/lwip:$(PWD)/workdir/apps/elfloader
+ 
+ .PHONY: all
+ 
+diff --git a/elfloader-nginx/README.md b/elfloader-nginx/README.md
+new file mode 100644
+index 0000000..1e6b8ba
+--- /dev/null
++++ b/elfloader-nginx/README.md
+@@ -0,0 +1,33 @@
++# Unikraft ELF Loader (NGINX)
++
++Build and run the [Unikraft ELF Loader](https://github.com/unikraft/app-elfloader) with NGINX.
++The ELF Loader uses the [Unikraft binary-compatibility layer](https://unikraft.org/docs/concepts/compatibility) in order to run native Linux binaries (ELFs) with Unikraft.
++
++## Set Up
++
++Set up the required repositories using the `setup.sh` script:
++
++```console
++./setup.sh
++```
++
++## Configure
++
++To configure the kernel, use:
++
++```console
++make menuconfig
++```
++
++In the console menu interface chose the platform (KVM/QEMU or KVM/Firecracker).
++
++## Build and Run
++
++To build the image and start it, use the provided scripts in `.scripts/` directory:
++
++```console
++./.scripts/build.sh
++./.scripts/run.sh
++```
++
++These scripts will build the `initrd.cpio` containing the extracted root filesystem using the Dockerfile, build the unikernel, and boot it using QEMU.
+diff --git a/elfloader-nginx/fc.x86_64.json b/elfloader-nginx/fc.x86_64.json
+index 915d378..d99c09d 100644
+--- a/elfloader-nginx/fc.x86_64.json
++++ b/elfloader-nginx/fc.x86_64.json
+@@ -1,7 +1,7 @@
+ {
+   "boot-source": {
+-    "kernel_image_path": "workdir/build/elfloader_fc-x86_64",
+-    "boot_args": "elfloader_fc-x86_64 netdev.ip=172.44.0.2/24:172.44.0.1::: vfs.fstab=[ \"initrd0:/:extract::ramfs=1:\" ] -- ./usr/bin/nginx",
++    "kernel_image_path": "workdir/build/elfloader_qemu-x86_64",
++    "boot_args": "elfloader_qemu-x86_64 netdev.ip=172.44.0.2/24:172.44.0.1::: vfs.fstab=[ \"initrd0:/:extract::ramfs=1:\" ] -- /usr/bin/nginx",
+     "initrd_path": "initrd.cpio"
+   },
+   "drives": [],
